@@ -12,7 +12,7 @@ services:
     command: run -c /etc/v2ray/config.json
 
   web:
-    build: ./api
+    build: ./docker/
     container_name: v2ray-ui
     ports:
       - "3000:3000"
@@ -20,4 +20,5 @@ services:
       - ./data:/app/data
       - ./api:/app/api
       - ./ui:/app/ui
+      - ./server.js:/app/server.js
     restart: always

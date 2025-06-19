@@ -3,9 +3,9 @@ const fs = require('fs');
 const path = require('path');
 const app = express();
 
-const CONFIG_PATH = path.join(__dirname, '../data/config.json');
+const CONFIG_PATH = path.join('/app/data/config.json');
 
-app.use(express.static('../ui'));
+app.use(express.static('/app/ui'));
 app.use(express.json());
 
 app.get('/api/config', (req, res) => {
