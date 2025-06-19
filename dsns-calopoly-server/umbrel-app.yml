@@ -1,0 +1,26 @@
+manifestVersion: 1
+id: dsns-calopoly-server
+name: Calopoly Server
+tagline: The backend for calopoly.dsns.dev
+icon: https://calopoly.dsns.dev/_next/image?url=%2F_next%2Fstatic%2Fmedia%2Fcalopoly.f4fe4ff2.jpg
+category: Development
+version: "1.0.0"
+port: 4000
+description: >-
+  The backend for calopoly.dsns.dev
+developer: DSNS
+website: https://calopoly.dsns.dev
+submitter: DSNS
+submission: https://github.com/dsnsgithub/dsns-umbrel-store
+repo: https://github.com/dsnsgithub/calopoly
+support: https://github.com/dsnsgithub/calopoly/issues
+gallery:
+  - https://i.imgur.com/yyVG0Jb.jpeg
+  - https://i.imgur.com/yyVG0Jb.jpeg
+  - https://i.imgur.com/yyVG0Jb.jpeg
+releaseNotes: >-
+  Initial release of the Calopoly server app.
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""
