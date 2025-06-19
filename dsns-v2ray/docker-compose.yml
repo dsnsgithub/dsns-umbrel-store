@@ -6,7 +6,7 @@ services:
     container_name: v2ray
     restart: on-failure
     volumes:
-      - ./app/data/config.json:/etc/v2ray/config.json
+      - ${APP_DATA_DIR}/app/data/config.json:/etc/v2ray/config.json
     ports:
       - "10086:10086"
     command: run -c /etc/v2ray/config.json
@@ -16,7 +16,7 @@ services:
     container_name: v2ray-ui
     working_dir: /app
     volumes:
-      - ./app:/app
+      - ${APP_DATA_DIR}/app:/app
     command: sh -c "npm install express && node ."
     ports:
       - "3000:3000"
