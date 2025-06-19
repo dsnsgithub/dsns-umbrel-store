@@ -4,7 +4,7 @@ name: Calopoly Server
 tagline: The backend for calopoly.dsns.dev
 icon: https://calopoly.dsns.dev/calopoly.jpg
 category: Development
-version: "1.0.1"
+version: "1.0.2"
 port: 4000
 description: >-
   The backend for calopoly.dsns.dev

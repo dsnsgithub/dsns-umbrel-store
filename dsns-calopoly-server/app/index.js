@@ -1,21 +1,20 @@
-// Express and Socket.io Server
-import express from "express";
-import { createServer } from "http";
-import { Server } from "socket.io";
-import cors from "cors";
-import { GameState, Player } from "./types";
+// Express and Socket.io Server (CommonJS version)
+const express = require("express");
+const http = require("http");
+const { Server } = require("socket.io");
+const cors = require("cors");
 
-const rooms: { [roomID: string]: GameState } = {};
-const disconnectTimers: { [socketID: string]: NodeJS.Timeout } = {};
+const rooms = {};
+const disconnectTimers = {};
 
 const app = express();
 app.use(cors());
-const server = createServer(app);
+const server = http.createServer(app);
 const io = new Server(server, {
 	cors: { origin: "*", methods: ["GET", "POST"] }
 });
 
-const isValidJSON = (msg: any): boolean => {
+const isValidJSON = (msg) => {
 	try {
 		JSON.parse(msg);
 		return true;
@@ -27,13 +26,12 @@ const isValidJSON = (msg: any): boolean => {
 io.on("connection", (socket) => {
 	console.log(`Client connected: ${socket.id}`);
 
-	socket.on("join-room", (roomID: string, player: Player) => {
+	socket.on("join-room", (roomID, player) => {
 		if (!roomID || !player) return;
 
 		socket.join(roomID);
 		console.log(`${player.name} joined ${roomID}`);
 
-		// check if there is a same name player in the room
 		if (rooms[roomID] && rooms[roomID].players.find((p) => p.name === player.name && p.id !== player.id)) {
 			socket.emit("name-taken", true);
 			return;
@@ -61,9 +59,9 @@ io.on("connection", (socket) => {
 		io.to(roomID).emit("update-chat", JSON.stringify(rooms[roomID].chat));
 	});
 
-	socket.on("update-players", (roomID: string, msg) => {
+	socket.on("update-players", (roomID, msg) => {
 		if (!isValidJSON(msg) || !rooms[roomID]) return;
-		const players = JSON.parse(msg) as Player[];
+		const players = JSON.parse(msg);
 		if (Array.isArray(players)) {
 			rooms[roomID].players = players;
 			io.to(roomID).emit("update-players", JSON.stringify(players));
@@ -71,15 +69,15 @@ io.on("connection", (socket) => {
 		}
 	});
 
-	socket.on("update-turn", (roomID: string, msg) => {
+	socket.on("update-turn", (roomID, msg) => {
 		io.to(roomID).emit("update-turn", msg);
 	});
 
-	socket.on("update-dice", (roomID: string, msg) => {
+	socket.on("update-dice", (roomID, msg) => {
 		io.to(roomID).emit("update-dice", msg);
 	});
 
-	socket.on("start-state", (roomID: string, msg) => {
+	socket.on("start-state", (roomID, msg) => {
 		if (!isValidJSON(msg) || !rooms[roomID]) return;
 		const started = JSON.parse(msg);
 		if (typeof started === "boolean") {
@@ -88,7 +86,7 @@ io.on("connection", (socket) => {
 		}
 	});
 
-	socket.on("chat", (roomID: string, msg) => {
+	socket.on("chat", (roomID, msg) => {
 		if (!rooms[roomID] || typeof msg !== "string" || msg.length > 500) return;
 		rooms[roomID].chat.push(msg);
 		io.to(roomID).emit("chat", JSON.stringify(rooms[roomID].chat));

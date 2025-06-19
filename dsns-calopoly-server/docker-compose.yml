@@ -7,7 +7,7 @@ services:
     working_dir: /app
     volumes:
       - ${APP_DATA_DIR}/app:/app
-    command: sh -c "npm install && npx ts-node ."
+    command: sh -c "npm install && node ."
     ports:
       - "4000:4000"
     restart: always
