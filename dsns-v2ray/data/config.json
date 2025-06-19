@@ -1,19 +1,32 @@
 {
-  "log": {
-    "loglevel": "warning"
-  },
-  "inbounds": [{
-    "port": 10086,
-    "protocol": "vmess",
-    "settings": {
-      "clients": [{
-        "id": "UUID-GOES-HERE",
-        "alterId": 0
-      }]
-    }
-  }],
-  "outbounds": [{
-    "protocol": "freedom",
-    "settings": {}
-  }]
+	"dns": {
+		"servers": ["https://dns.adguard.com"]
+	},
+	"inbounds": [
+		{
+			"port": 10086,
+			"protocol": "vmess",
+			"settings": {
+				"clients": [
+					{
+						"alterId": 64,
+						"id": "3670d4c2-71a6-45f9-8f32-36fa3e8301ba"
+					}
+				]
+			},
+			"streamSettings": {
+				"network": "ws",
+				"security": "none",
+				"wsSettings": {
+					"path": "/dsns"
+				}
+			}
+		}
+	],
+	"outbounds": [
+		{
+			"protocol": "freedom",
+			"settings": {}
+		}
+	]
 }
