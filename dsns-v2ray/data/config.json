@@ -1,0 +1,19 @@
+{
+  "log": {
+    "loglevel": "warning"
+  },
+  "inbounds": [{
+    "port": 10086,
+    "protocol": "vmess",
+    "settings": {
+      "clients": [{
+        "id": "UUID-GOES-HERE",
+        "alterId": 0
+      }]
+    }
+  }],
+  "outbounds": [{
+    "protocol": "freedom",
+    "settings": {}
+  }]
+}
