@@ -6,21 +6,18 @@ services:
     container_name: v2ray
     restart: on-failure
     volumes:
-      - ./data/config.json:/etc/v2ray/config.json
+      - ./app/data/config.json:/etc/v2ray/config.json
     ports:
       - "10086:10086"
     command: run -c /etc/v2ray/config.json
 
   web:
-    build: 
-      context: .
-      dockerfile: ./docker/Dockerfile
+    image: node:18-alpine
     container_name: v2ray-ui
+    working_dir: /app
+    volumes:
+      - ./app:/app
+    command: sh -c "npm install express && node ."
     ports:
       - "3000:3000"
-    volumes:
-      - ./data:/app/data
-      - ./api:/app/api
-      - ./ui:/app/ui
-      - ./server.js:/app/server.js
     restart: always
