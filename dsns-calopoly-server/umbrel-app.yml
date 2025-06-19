@@ -2,7 +2,7 @@ manifestVersion: 1
 id: dsns-calopoly-server
 name: Calopoly Server
 tagline: The backend for calopoly.dsns.dev
-icon: https://calopoly.dsns.dev/_next/image?url=%2F_next%2Fstatic%2Fmedia%2Fcalopoly.f4fe4ff2.jpg
+icon: https://calopoly.dsns.dev/calopoly.jpg
 category: Development
 version: "1.0.1"
 port: 4000
