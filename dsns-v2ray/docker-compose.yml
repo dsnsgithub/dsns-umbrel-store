@@ -12,7 +12,9 @@ services:
     command: run -c /etc/v2ray/config.json
 
   web:
-    build: ./docker/
+    build: 
+      context: .
+      dockerfile: ./docker/Dockerfile
     container_name: v2ray-ui
     ports:
       - "3000:3000"
