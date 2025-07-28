@@ -8,10 +8,9 @@ services:
 
   server:
     image: python:3.11-alpine
-    user: "1000:1000"
     restart: on-failure
     volumes:
-      - ${APP_DATA_DIR}/docker-compose-override-applier/app:/app
+      - ${APP_DATA_DIR}/app:/app
       - ${UMBREL_ROOT}/app-data:/umbrel-app-data
     working_dir: /app
     command: [
