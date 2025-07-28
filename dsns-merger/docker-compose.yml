@@ -1,0 +1,26 @@
+version: "3.7"
+
+services:
+  app_proxy:
+    environment:
+      APP_HOST: docker-compose-override-applier_server_1
+      APP_PORT: 8080
+
+  server:
+    image: python:3.11-alpine
+    user: "1000:1000"
+    restart: on-failure
+    volumes:
+      - ${APP_DATA_DIR}/docker-compose-override-applier/app:/app
+      - ${UMBREL_ROOT}/app-data:/umbrel-app-data
+    working_dir: /app
+    command: [
+      "sh", "-c",
+      "pip install --no-cache-dir -r requirements.txt && python app.py"
+    ]
+    environment:
+      - UMBREL_APP_DATA_DIR=/umbrel-app-data
+    ports:
+      - "8080:8080"
+    networks:
+      - umbrel_main_network

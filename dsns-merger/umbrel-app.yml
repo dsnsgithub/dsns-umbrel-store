@@ -1,0 +1,27 @@
+manifestVersion: 1
+id: dsns-merger
+category: utilities
+name: Docker Compose Override Applier
+version: "1.0.0"
+tagline: Apply docker-compose overrides to all app configurations
+description: >-
+  This utility app applies docker-compose.override.yml files to their corresponding
+  docker-compose.yml files across all apps in the app-data directory. It merges
+  the override configurations into the main compose files to ensure your custom
+  configurations are applied.
+developer: Custom Utility
+website: https://umbrel.com
+dependencies: []
+repo: ""
+support: ""
+port: 8080
+gallery: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""
+torOnly: false
+permissions:
+  - STORAGE_READ
+  - STORAGE_WRITE
+submitter: dsns
+submission: ""

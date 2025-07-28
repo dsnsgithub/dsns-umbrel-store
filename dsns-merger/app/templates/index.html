@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Docker Compose Override Applier</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .info {
+            background: #e3f2fd;
+            border: 1px solid #2196f3;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+        }
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .status-yes {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .status-no {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .status-ready {
+            background-color: #d1ecf1;
+            color: #0c5460;
+        }
+        .btn {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 0;
+        }
+        .btn:hover {
+            background-color: #0056b3;
+        }
+        .btn:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        .warning {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Docker Compose Override Applier</h1>
+        
+        <div class="info">
+            <strong>What this does:</strong> This utility applies docker-compose.override.yml files to their corresponding docker-compose.yml files across all apps in your app-data directory. It creates backups before making changes.
+        </div>
+
+        <div class="warning">
+            <strong>⚠️ Warning:</strong> This will modify your docker-compose.yml files. Backups are created automatically, but make sure you understand what overrides you're applying.
+        </div>
+
+        <h2>App Status</h2>
+        
+        {% if apps %}
+        <table>
+            <thead>
+                <tr>
+                    <th>App Name</th>
+                    <th>Has docker-compose.yml</th>
+                    <th>Has docker-compose.override.yml</th>
+                    <th>Can Apply Override</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for app in apps %}
+                <tr>
+                    <td>{{ app.name }}</td>
+                    <td>
+                        <span class="status-badge {% if app.has_base %}status-yes{% else %}status-no{% endif %}">
+                            {% if app.has_base %}Yes{% else %}No{% endif %}
+                        </span>
+                    </td>
+                    <td>
+                        <span class="status-badge {% if app.has_override %}status-yes{% else %}status-no{% endif %}">
+                            {% if app.has_override %}Yes{% else %}No{% endif %}
+                        </span>
+                    </td>
+                    <td>
+                        <span class="status-badge {% if app.can_apply %}status-ready{% else %}status-no{% endif %}">
+                            {% if app.can_apply %}Ready{% else %}Not Ready{% endif %}
+                        </span>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <form method="POST" action="/apply">
+            <button type="submit" class="btn" 
+                    {% if not apps or not apps|selectattr('can_apply')|list %}disabled{% endif %}>
+                Apply All Overrides
+            </button>
+        </form>
+        {% else %}
+        <p>No apps found in the app-data directory.</p>
+        {% endif %}
+    </div>
+</body>
+</html>
