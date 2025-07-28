@@ -2,7 +2,7 @@ manifestVersion: 1
 id: dsns-merger
 category: utilities
 name: Docker Compose Override Applier
-version: "1.0.0"
+version: "1.0.1"
 tagline: Apply docker-compose overrides to all app configurations
 description: >-
   This utility app applies docker-compose.override.yml files to their corresponding
@@ -10,7 +10,8 @@ description: >-
   the override configurations into the main compose files to ensure your custom
   configurations are applied.
 developer: Custom Utility
-website: https://umbrel.com
+icon: https://raw.githubusercontent.com/dsnsgithub/dsns-umbrel-store/refs/heads/master/dsns-merger/icon.png
+website: https://dsns.dev/
 dependencies: []
 repo: ""
 support: ""
@@ -23,5 +24,5 @@ torOnly: false
 permissions:
   - STORAGE_READ
   - STORAGE_WRITE
-submitter: dsns
+submitter: DSNS
 submission: ""
