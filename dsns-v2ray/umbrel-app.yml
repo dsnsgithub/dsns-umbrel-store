@@ -4,10 +4,12 @@ name: V2Ray
 tagline: V2Ray (VMESS) VPN
 icon: https://raw.githubusercontent.com/v2fly/v2fly-github-io/master/docs/.vuepress/public/readme-logo.png
 category: Development
-version: "1.0.1"
+version: "1.0.2"
 port: 3000
 description: >-
   V2Ray is a platform for building proxies to bypass network restrictions.
+
+  Web interface is on port 3000, VMESS VPN is on port 10086.
 developer: Project V
 website: https://www.v2fly.org/
 submitter: DSNS

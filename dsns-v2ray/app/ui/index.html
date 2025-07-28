@@ -1,15 +1,63 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <title>V2Ray Config Editor</title>
-  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .editor {
+      font-family: monospace;
+      white-space: pre-wrap;
+      overflow-wrap: break-word;
+      outline: none;
+    }
+
+    .token.string {
+      color: #f59e0b;
+    }
+
+    .token.number {
+      color: #10b981;
+    }
+
+    .token.boolean {
+      color: #6366f1;
+    }
+
+    .token.null {
+      color: #ec4899;
+    }
+
+    .token.key {
+      color: #3b82f6;
+    }
+  </style>
 </head>
-<body>
-  <h1>V2Ray Config Editor</h1>
-  <textarea id="config" rows="25" cols="80"></textarea><br />
-  <button onclick="saveConfig()">Save Config</button>
-  <p id="status"></p>
+
+<body class="bg-gradient-to-br from-gray-100 to-gray-200 min-h-screen flex items-center justify-center p-6">
+  <div class="bg-white shadow-xl rounded-2xl w-full max-w-5xl p-8">
+
+    <div class="flex flex-row items-center justify-center mb-8">
+      <img src="https://raw.githubusercontent.com/v2fly/v2fly-github-io/master/docs/.vuepress/public/readme-logo.png" alt="V2Ray Logo" class="w-16 mr-4" \>
+      <h1 class="text-4xl font-extrabold text-gray-800 text-center">V2Ray Config Editor</h1>
+    </div>
+
+
+    <div class="mb-4">
+      <label class="block text-lg font-semibold text-gray-700 mb-2">JSON Configuration</label>
+      <div id="editor" class="editor border border-gray-300 bg-gray-50 rounded-xl p-4 h-96 overflow-auto text-sm" contenteditable="true" spellcheck="false"></div>
+    </div>
+
+    <div class="flex items-center justify-between">
+      <button onclick="saveConfig()" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-2 rounded-xl transition">
+        Save Config
+      </button>
+      <p id="status" class="text-sm text-gray-700"></p>
+    </div>
+  </div>
+
   <script src="app.js"></script>
 </body>
+
 </html>
