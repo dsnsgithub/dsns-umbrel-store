@@ -10,8 +10,11 @@ description: >-
   the override configurations into the main compose files to ensure your custom
   configurations are applied.
 
+
   1. Update the app to the latest version using Umbrel.
+
   2. Apply all overrides by clicking the "Apply All Overrides" button in the web dashboard.
+
   3. Restart the updated app.
 developer: DSNS
 icon: https://raw.githubusercontent.com/dsnsgithub/dsns-umbrel-store/refs/heads/master/dsns-merger/icon.png
