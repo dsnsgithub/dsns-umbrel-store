@@ -9,12 +9,12 @@ description: >-
   docker-compose.yml files across all apps in the app-data directory. It merges
   the override configurations into the main compose files to ensure your custom
   configurations are applied.
-developer: Custom Utility
+developer: DSNS
 icon: https://raw.githubusercontent.com/dsnsgithub/dsns-umbrel-store/refs/heads/master/dsns-merger/icon.png
 website: https://dsns.dev/
 dependencies: []
-repo: ""
-support: ""
+repo: "https://github.com/dsnsgithub/dsns-umbrel-store"
+support: "https://github.com/dsnsgithub/dsns-umbrel-store/issues"
 port: 8080
 gallery: []
 path: ""
@@ -25,4 +25,4 @@ permissions:
   - STORAGE_READ
   - STORAGE_WRITE
 submitter: DSNS
-submission: ""
+submission: "https://github.com/dsnsgithub/dsns-umbrel-store"

@@ -15,9 +15,6 @@ submission: https://github.com/dsnsgithub/dsns-umbrel-store
 repo: https://github.com/dsnsgithub/calopoly
 support: https://github.com/dsnsgithub/calopoly/issues
 gallery:
-  - https://i.imgur.com/yyVG0Jb.jpeg
-  - https://i.imgur.com/yyVG0Jb.jpeg
-  - https://i.imgur.com/yyVG0Jb.jpeg
 releaseNotes: >-
   Initial release of the Calopoly server app.
 dependencies: []

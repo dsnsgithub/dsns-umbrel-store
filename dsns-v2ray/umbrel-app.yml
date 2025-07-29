@@ -16,10 +16,6 @@ submitter: DSNS
 submission: https://github.com/dsnsgithub/dsns-umbrel-store
 repo: https://github.com/v2fly/v2ray-core
 support: https://github.com/v2fly/v2ray-core/issues
-gallery:
-  - https://i.imgur.com/yyVG0Jb.jpeg
-  - https://i.imgur.com/yyVG0Jb.jpeg
-  - https://i.imgur.com/yyVG0Jb.jpeg
 releaseNotes: >-
   Initial release of the V2Ray Umbrel app.
 dependencies: []
