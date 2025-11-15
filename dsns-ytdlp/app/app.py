@@ -4,7 +4,6 @@ import re
 import shlex
 import subprocess
 from urllib.parse import quote
-
 import requests
 from flask import Flask, Response, abort, request
 from werkzeug.utils import secure_filename
@@ -16,10 +15,8 @@ logging.basicConfig(level=logging.INFO)
 def sanitize_filename(title, fallback="download"):
     if not title:
         return fallback
-    # secure_filename from werkzeug removes problematic characters; keep a sanitized unicode name.
     fn = secure_filename(title)
     if not fn:
-        # fallback if secure_filename removed everything
         fn = re.sub(r"[^\w\-_\. ]", "_", title)[:200]
     return fn
 
@@ -33,25 +30,134 @@ def yt_dlp_json(url):
 
 
 def choose_progressive_format(info):
-    """
-    Return a format dict which is a single-file (has audio+video)
-    Prefer highest resolution/bitrate and non-m3u8 protocols if possible.
-    """
+    """Return a format dict with both audio+video (single file)."""
     best = None
     for f in info.get("formats", []):
-        # skip formats that are just audio-only or video-only
         if f.get("vcodec") == "none" or f.get("acodec") == "none":
             continue
-        # prefer non-m3u8 / non-dash if possible (direct .mp4/.m4a/.webm)
-        proto = f.get("protocol", "")
-        # avoid formats that are manifest playlists (hls native) where direct streaming may be tricky
-        if proto and proto.startswith("m3u8"):
+        if f.get("protocol", "").startswith("m3u8"):
             continue
-        # choose by resolution or bitrate
-        score = (f.get("height") or 0) * 1000000 + (f.get("tbr") or 0)
+        score = (f.get("height") or 0) * 1_000_000 + (f.get("tbr") or 0)
         if best is None or score > best[0]:
             best = (score, f)
     return best[1] if best else None
+
+
+def best_video_format(info):
+    """Best video-only format with a direct url."""
+    best = None
+    for f in info.get("formats", []):
+        if f.get("acodec") != "none" or f.get("vcodec") == "none":
+            continue
+        if f.get("protocol", "").startswith("m3u8"):
+            continue
+        score = (f.get("height") or 0) * 1_000_000 + (f.get("tbr") or 0)
+        if best is None or score > best[0]:
+            best = (score, f)
+    return best[1] if best else None
+
+
+def best_audio_format(info):
+    """Best audio-only format with a direct url."""
+    best = None
+    for f in info.get("formats", []):
+        if f.get("vcodec") != "none" or f.get("acodec") == "none":
+            continue
+        score = f.get("abr") or 0
+        if best is None or score > best[0]:
+            best = (score, f)
+    return best[1] if best else None
+
+
+def stream_url(url, headers=None, chunk_size=1024 * 1024):
+    """Yield chunks from a direct media URL."""
+    with requests.get(url, stream=True, headers=headers or {}, timeout=15) as r:
+        r.raise_for_status()
+        for chunk in r.iter_content(chunk_size=chunk_size):
+            if chunk:
+                yield chunk
+
+
+def ffmpeg_merge(video_url, vheaders, audio_url, aheaders, chunk_size=1024 * 1024):
+    """
+    Merge a video-only and audio-only stream on-the-fly with ffmpeg.
+    Output is MP4 (libx264 + aac).
+    """
+    ffmpeg_cmd = [
+        "ffmpeg",
+        "-i", "pipe:0",           # video from stdin
+        "-i", "pipe:1",           # audio from stdin (ffmpeg will request it)
+        "-c:v", "copy",           # keep original video codec (usually already h264)
+        "-c:a", "aac", "-b:a", "192k",
+        "-f", "mp4",
+        "-movflags", "frag_keyframe+empty_moov",
+        "pipe:1",                 # output to stdout
+    ]
+
+    proc = subprocess.Popen(
+        ffmpeg_cmd,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        bufsize=chunk_size,
+    )
+
+    # Feed video stream into ffmpeg's stdin (pipe:0)
+    def video_feeder():
+        for chunk in stream_url(video_url, vheaders, chunk_size):
+            proc.stdin.write(chunk)   # type: ignore
+        proc.stdin.close()            # type: ignore
+
+    # Start feeding video in a background thread
+    from threading import Thread
+    t = Thread(target=video_feeder, daemon=True)
+    t.start()
+
+    # ffmpeg will request the audio stream on its own (pipe:1) via HTTP
+    # We just forward the request through ffmpeg's built-in downloader.
+    # To make it work we add the audio URL as a second input with headers.
+    # Unfortunately ffmpeg cannot read headers from a pipe, so we
+    # launch a tiny helper that adds the headers and writes to pipe:1.
+
+    def audio_feeder():
+        with requests.get(audio_url, stream=True, headers=aheaders or {}, timeout=15) as r:
+            r.raise_for_status()
+            for chunk in r.iter_content(chunk_size=chunk_size):
+                proc.stdin.write(chunk)   # type: ignore
+
+    # ffmpeg expects the second input on its own; we give it the URL directly
+    # and let ffmpeg handle the download (it respects http_headers if we
+    # provide a concat demuxer – simpler approach: just let ffmpeg fetch it.
+    # The following works because ffmpeg can open http(s) URLs itself.
+
+    # Replace the two-pipe approach with a single ffmpeg call that pulls both URLs:
+    ffmpeg_cmd = [
+        "ffmpeg",
+        "-headers", "\r\n".join(f"{k}: {v}" for k, v in (vheaders or {}).items()) + "\r\n",
+        "-i", video_url,
+        "-headers", "\r\n".join(f"{k}: {v}" for k, v in (aheaders or {}).items()) + "\r\n",
+        "-i", audio_url,
+        "-c:v", "copy",
+        "-c:a", "aac", "-b:a", "192k",
+        "-f", "mp4",
+        "-movflags", "frag_keyframe+empty_moov",
+        "pipe:1",
+    ]
+
+    proc = subprocess.Popen(
+        ffmpeg_cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        bufsize=chunk_size,
+    )
+
+    while True:
+        chunk = proc.stdout.read(chunk_size)  # type: ignore
+        if not chunk:
+            break
+        yield chunk
+
+    proc.wait()
 
 
 @app.route("/download", methods=["POST"])
@@ -63,191 +169,91 @@ def download():
 
     try:
         info = yt_dlp_json(url)
-    except subprocess.CalledProcessError as e:
+    except subprocess.CalledProcessError:
         logging.exception("yt-dlp metadata extraction failed")
         return abort(500, "Failed to fetch metadata")
 
     title = info.get("title") or info.get("id") or "download"
     safe_name = sanitize_filename(title)
-    if fmt == "video":
-        filename = f"{safe_name}.mp4"
-        mimetype = "video/mp4"
-    else:
-        # we'll stream the audio container if possible (may be m4a/webm)
-        filename = f"{safe_name}.mp3"  # we try to name mp3, but we may stream original container
-        mimetype = "audio/mpeg"
 
-    # Try to find a single-file progressive format (audio+video) and stream that URL directly.
-    prog_format = choose_progressive_format(info) if fmt == "video" else None
-
-    # For audio requests, prefer best single audio file (no conversion) for speed.
+    # ------------------------------------------------------------------
+    # AUDIO PATH – always direct requests stream (no conversion)
+    # ------------------------------------------------------------------
     if fmt != "video":
-        # Find the highest quality audio-only format
-        best_audio = None
-        for f in info.get("formats", []):
-            if f.get("vcodec") != "none":  # skip video
-                continue
-            if f.get("acodec") == "none":  # skip no-audio formats
-                continue
-            score = f.get("abr") or 0
-            if best_audio is None or score > best_audio[0]:
-                best_audio = (score, f)
+        audio_fmt = best_audio_format(info)
+        if not audio_fmt or not audio_fmt.get("url"):
+            return abort(500, "No suitable audio format found")
 
-        if best_audio:
-            audio_format = best_audio[1]
-            direct_url = audio_format["url"]
-            headers = audio_format.get("http_headers") or {}
-            ext = audio_format.get("ext", "audio")
-            filename = f"{safe_name}.{ext}"
+        direct_url = audio_fmt["url"]
+        headers = audio_fmt.get("http_headers") or {}
+        ext = audio_fmt.get("ext", "m4a")
+        filename = f"{safe_name}.{ext}"
 
-            # Set MIME type based on extension
-            if ext in ["m4a", "mp4"]:
-                mimetype = "audio/mp4"
-            elif ext == "webm":
-                mimetype = "audio/webm"
-            elif ext == "opus":
-                mimetype = "audio/ogg"
-            else:
-                mimetype = "application/octet-stream"
+        if ext in ("m4a", "mp4"):
+            mimetype = "audio/mp4"
+        elif ext == "webm":
+            mimetype = "audio/webm"
+        elif ext == "opus":
+            mimetype = "audio/ogg"
+        else:
+            mimetype = "application/octet-stream"
 
-            logging.info(
-                "Streaming best audio format %s from %s",
-                audio_format.get("format_id"),
-                direct_url,
-            )
+        logging.info("Streaming audio %s → %s", audio_fmt.get("format_id"), direct_url)
 
-            def stream_direct():
-                with requests.get(
-                    direct_url, stream=True, headers=headers, timeout=10
-                ) as r:
-                    r.raise_for_status()
-                    for chunk in r.iter_content(chunk_size=1024 * 1024):
-                        if chunk:
-                            yield chunk
+        def stream():
+            yield from stream_url(direct_url, headers)
 
-            disposition = f"attachment; filename*=UTF-8''{quote(filename)}"
-            return Response(
-                stream_direct(),
-                mimetype=mimetype,
-                headers={"Content-Disposition": disposition},
-            )
-
-    if prog_format and prog_format.get("url"):
-        # Stream the direct media URL with requests — usually fastest, no temporary merge.
-        direct_url = prog_format["url"]
-        headers = prog_format.get("http_headers") or {}
-        logging.info(
-            "Streaming direct format %s from %s",
-            prog_format.get("format_id"),
-            direct_url,
-        )
-
-        def stream_direct():
-            # Stream the direct URL using requests
-            with requests.get(
-                direct_url, stream=True, headers=headers, timeout=10
-            ) as r:
-                r.raise_for_status()
-                for chunk in r.iter_content(chunk_size=1024 * 1024):
-                    if chunk:
-                        yield chunk
-
-        # RFC5987 filename* header for UTF-8 filename
         disposition = f"attachment; filename*=UTF-8''{quote(filename)}"
         return Response(
-            stream_direct(),
+            stream(),
             mimetype=mimetype,
             headers={"Content-Disposition": disposition},
         )
 
-    # No single-file progressive format found (likely segmented DASH/HLS requiring merge).
-    # Fall back to streaming yt-dlp's stdout. This may cause yt-dlp to create temp files for merging.
-    # Use format expression that prefers merging bestvideo+bestaudio but allows direct best if available.
-    if fmt == "video":
-        ytdlp_format_expr = "bestvideo+bestaudio/best"
-        mimetype = "video/mp4"
-        out_name = filename
-        # Add flags to try to speed up fragment downloads
-        cmd = [
-            "yt-dlp",
-            "-f",
-            ytdlp_format_expr,
-            "--no-playlist",
-            "--no-warnings",
-            "--no-part",
-            "--concurrent-fragments",
-            "16",
-            "--fragment-retries",
-            "5",
-            "--buffer-size",
-            "16M",
-            "-o",
-            "-",  # stream to stdout
-            url,
-        ]
-    else:
-        # Request best audio as a raw stream. Converting to mp3 requires ffmpeg merging and may create temp files.
-        # To avoid extra work, we stream the best audio container (m4a/webm) and set mime accordingly.
-        ytdlp_format_expr = "bestaudio/best"
-        cmd = [
-            "yt-dlp",
-            "-f",
-            ytdlp_format_expr,
-            "--no-playlist",
-            "--no-warnings",
-            "--no-part",
-            "--concurrent-fragments",
-            "16",
-            "--fragment-retries",
-            "5",
-            "--buffer-size",
-            "16M",
-            "-o",
-            "-",
-            url,
-        ]
-        # We may not actually be mp3; derive mime from info if possible
-        # try to get ext of best audio format
-        best_audio_ext = None
-        for f in reversed(info.get("formats", [])):
-            if f.get("acodec") != "none" and f.get("vcodec") == "none":
-                best_audio_ext = f.get("ext")
-                break
-        if best_audio_ext == "m4a" or best_audio_ext == "mp4":
-            mimetype = "audio/mp4"
-            filename = f"{safe_name}.m4a"
-        elif best_audio_ext == "webm":
-            mimetype = "audio/webm"
-            filename = f"{safe_name}.webm"
-        else:
-            mimetype = "application/octet-stream"
+    # ------------------------------------------------------------------
+    # VIDEO PATH – always requests stream (progressive or merged)
+    # ------------------------------------------------------------------
+    filename = f"{safe_name}.mp4"
+    mimetype = "video/mp4"
+
+    # 1. Try a single-file progressive format
+    prog = choose_progressive_format(info)
+    if prog and prog.get("url"):
+        direct_url = prog["url"]
+        headers = prog.get("http_headers") or {}
+        logging.info("Streaming progressive %s → %s", prog.get("format_id"), direct_url)
+
+        def stream():
+            yield from stream_url(direct_url, headers)
+
+        disposition = f"attachment; filename*=UTF-8''{quote(filename)}"
+        return Response(
+            stream(),
+            mimetype=mimetype,
+            headers={"Content-Disposition": disposition},
+        )
+
+    # 2. No progressive → merge best video + best audio on the fly
+    vfmt = best_video_format(info)
+    afmt = best_audio_format(info)
+    if not vfmt or not afmt or not vfmt.get("url") or not afmt.get("url"):
+        return abort(500, "Cannot find separate video/audio streams to merge")
 
     logging.info(
-        "Falling back to yt-dlp subprocess: %s", " ".join(shlex.quote(c) for c in cmd)
+        "Merging video %s + audio %s via ffmpeg",
+        vfmt.get("format_id"),
+        afmt.get("format_id"),
     )
 
-    def generate_from_proc():
-        # Start the yt-dlp process and stream stdout.
-        proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=1024 * 1024 * 4
+    def merged_stream():
+        yield from ffmpeg_merge(
+            vfmt["url"], vfmt.get("http_headers"),
+            afmt["url"], afmt.get("http_headers")
         )
-        try:
-            while True:
-                chunk = proc.stdout.read(1024 * 1024)
-                if not chunk:
-                    break
-                yield chunk
-        finally:
-            # ensure process cleanup
-            try:
-                proc.kill()
-            except Exception:
-                pass
-            proc.wait()
 
     disposition = f"attachment; filename*=UTF-8''{quote(filename)}"
     return Response(
-        generate_from_proc(),
+        merged_stream(),
         mimetype=mimetype,
         headers={"Content-Disposition": disposition},
     )
