@@ -17,7 +17,7 @@ website: https://github.com/yt-dlp/yt-dlp
 dependencies: []
 repo: https://github.com/dsnsgithub/dsns-umbrel-store
 support: https://github.com/dsnsgithub/dsns-umbrel-store/issues
-port: 8081
+port: 8989
 gallery: []
 path: ""
 defaultUsername: ""
