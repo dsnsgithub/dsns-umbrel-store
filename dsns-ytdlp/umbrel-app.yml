@@ -1,5 +1,5 @@
 manifestVersion: 1
-id: yt-dlp-stream
+id: dsns-ytdlp
 category: media
 name: YT-DLP Stream
 version: "1.0.0"
