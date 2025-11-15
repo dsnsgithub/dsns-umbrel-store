@@ -1,0 +1,25 @@
+manifestVersion: 1
+id: yt-dlp-stream
+category: media
+name: YT-DLP Stream
+version: "1.0.0"
+tagline: Stream videos/audio directly with yt-dlp, no storage
+description: >-
+  YT-DLP Stream is a minimal self-hosted web interface that uses yt-dlp to stream video or audio directly to your browser without saving anything to disk.
+  
+  Enter a URL, choose video or audio, and it streams the content as a direct download. Supports YouTube and hundreds of other sites. No persistent storage is used—perfect for low-disk setups or quick one-off downloads.
+  
+  Built with Flask for simplicity; processes on the fly using yt-dlp's stdout streaming.
+releaseNotes: >-
+  Initial release with streaming support.
+developer: Community
+website: https://github.com/yt-dlp/yt-dlp
+dependencies: []
+repo: https://github.com/yt-dlp/yt-dlp
+support: https://github.com/yt-dlp/yt-dlp/issues
+port: 9999
+gallery: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""
+submitter: Community
