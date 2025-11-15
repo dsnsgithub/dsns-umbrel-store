@@ -61,6 +61,110 @@ def download():
     if not url:
         return abort(400, "Missing url")
 
+    # ====================================================================
+    # NEW "FAST PATH" FOR AUDIO - Try this before anything else
+    # ====================================================================
+    if fmt != "video":
+        # Try to get a direct, non-fragmented audio URL with `yt-dlp -g`
+        # This is *much* faster than processing the full JSON if it works.
+        # 'ba[protocol^=http]' = Best Audio that is a direct HTTP stream
+        cmd_get_url = [
+            "yt-dlp",
+            "-g",
+            "-f",
+            "ba[protocol^=http]",
+            "--no-playlist",
+            "--no-warnings",
+            "--no-part",
+            "--fragment-retries",
+            "3",
+            url,
+        ]
+        logging.info(
+            "Audio Request: Trying fast path with: %s",
+            " ".join(shlex.quote(c) for c in cmd_get_url),
+        )
+
+        try:
+            # Run with a short timeout. If it's slow, fall back.
+            direct_url_output = (
+                subprocess.check_output(cmd_get_url, stderr=subprocess.PIPE, timeout=8)
+                .decode("utf-8")
+                .strip()
+            )
+
+            # -g might return multiple URLs (e.g., for some formats).
+            # We just want the first HTTP(S) URL.
+            direct_url = next(
+                (
+                    line
+                    for line in direct_url_output.splitlines()
+                    if line.startswith("http")
+                ),
+                None,
+            )
+
+            if direct_url:
+                logging.info("Audio Fast Path SUCCESS. Streaming from: %s", direct_url)
+
+                def stream_direct_audio():
+                    # Use requests to stream the URL we found
+                    with requests.get(direct_url, stream=True, timeout=10) as r:
+                        r.raise_for_status()
+                        for chunk in r.iter_content(chunk_size=1024 * 1024):
+                            if chunk:
+                                yield chunk
+
+                # We have to guess title and mimetype since we skipped the -j call
+                # This is a small price for speed.
+                try:
+                    # Quick subprocess to get *just* the title
+                    title_cmd = [
+                        "yt-dlp",
+                        "--get-title",
+                        "--no-playlist",
+                        "--no-warnings",
+                        url,
+                    ]
+                    title_bytes = subprocess.check_output(
+                        title_cmd, stderr=subprocess.DEVNULL, timeout=5
+                    )
+                    title = title_bytes.decode("utf-8").strip()
+                except Exception:
+                    title = "audio_download"
+
+                safe_name = sanitize_filename(title)
+
+                # Guess mimetype from URL extension
+                if ".webm" in direct_url:
+                    mimetype = "audio/webm"
+                    filename = f"{safe_name}.webm"
+                elif ".m4a" in direct_url:
+                    mimetype = "audio/mp4"
+                    filename = f"{safe_name}.m4a"
+                else:
+                    mimetype = "audio/mpeg"
+                    filename = f"{safe_name}.mp3"
+
+                disposition = f"attachment; filename*=UTF-8''{quote(filename)}"
+                return Response(
+                    stream_direct_audio(),
+                    mimetype=mimetype,
+                    headers={"Content-Disposition": disposition},
+                )
+
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            logging.warning(
+                "Audio Fast Path (-g) failed. Falling back to full JSON method. Error: %s",
+                e,
+            )
+
+    # ====================================================================
+    # END OF NEW FAST PATH. Original logic follows.
+    # ====================================================================
+
+    # If we're here, it's either a video request OR the audio fast path failed.
+    # Proceed with the original (slower) JSON-based method.
     try:
         info = yt_dlp_json(url)
     except subprocess.CalledProcessError as e:
@@ -69,44 +173,39 @@ def download():
 
     title = info.get("title") or info.get("id") or "download"
     safe_name = sanitize_filename(title)
+
+    prog_format = None
     if fmt == "video":
         filename = f"{safe_name}.mp4"
         mimetype = "video/mp4"
+        # Try to find a single-file progressive format (audio+video)
+        prog_format = choose_progressive_format(info)
     else:
-        # we'll stream the audio container if possible (may be m4a/webm)
-        filename = f"{safe_name}.mp3"  # we try to name mp3, but we may stream original container
+        # Audio request, and the '-g' fast path failed.
+        # Fall back to the JSON-based "find direct URL" method.
+        filename = f"{safe_name}.mp3"
         mimetype = "audio/mpeg"
 
-    # Try to find a single-file progressive format (audio+video) and stream that URL directly.
-    prog_format = choose_progressive_format(info) if fmt == "video" else None
-
-    # For audio requests, prefer best single audio file (no conversion) for speed.
-    if fmt != "video":
-        # Find the best *direct-streamable* audio-only format
         audio_formats = []
         for f in info.get("formats", []):
-            # Find audio-only formats
             if f.get("acodec") != "none" and f.get("vcodec") == "none":
                 score = f.get("abr") or 0
                 audio_formats.append((score, f))
 
-        # Sort by quality (highest bitrate first)
         audio_formats.sort(key=lambda x: x[0], reverse=True)
 
-        # Find the best-quality format that has a direct URL
-        prog_format = None  # Reset from video logic
         for score, f in audio_formats:
-            if f.get("url"):
+            if f.get("url"):  # Find best-quality one that has a direct URL
                 prog_format = f
                 logging.info(
-                    "Found direct streamable audio format: %s (abr=%s)",
+                    "Found direct streamable audio format in JSON: %s (abr=%s)",
                     f.get("format_id"),
                     score,
                 )
-                break  # Found one, use it
+                break
 
+    # === Direct Stream (from JSON) ===
     if prog_format and prog_format.get("url"):
-        # Stream the direct media URL with requests — usually fastest, no temporary merge.
         direct_url = prog_format["url"]
         headers = prog_format.get("http_headers") or {}
         logging.info(
@@ -115,8 +214,7 @@ def download():
             direct_url,
         )
 
-        def stream_direct():
-            # Stream the direct URL using requests
+        def stream_direct_json():
             with requests.get(
                 direct_url, stream=True, headers=headers, timeout=10
             ) as r:
@@ -125,22 +223,23 @@ def download():
                     if chunk:
                         yield chunk
 
-        # RFC5987 filename* header for UTF-8 filename
         disposition = f"attachment; filename*=UTF-8''{quote(filename)}"
         return Response(
-            stream_direct(),
+            stream_direct_json(),
             mimetype=mimetype,
             headers={"Content-Disposition": disposition},
         )
 
-    # No single-file progressive format found (likely segmented DASH/HLS requiring merge).
-    # Fall back to streaming yt-dlp's stdout. This may cause yt-dlp to create temp files for merging.
-    # Use format expression that prefers merging bestvideo+bestaudio but allows direct best if available.
+    # === Fallback to Subprocess (Slowest) ===
+    # If we are here, it means:
+    # 1. It's a video request for a fragmented stream (like DASH)
+    # 2. It's an audio request, and BOTH fast paths failed.
+    logging.info(
+        "No direct streamable URL found. Falling back to yt-dlp subprocess (slow)."
+    )
+
     if fmt == "video":
         ytdlp_format_expr = "bestvideo+bestaudio/best"
-        mimetype = "video/mp4"
-        out_name = filename
-        # Add flags to try to speed up fragment downloads
         cmd = [
             "yt-dlp",
             "-f",
@@ -155,12 +254,11 @@ def download():
             "--buffer-size",
             "16M",
             "-o",
-            "-",  # stream to stdout
+            "-",
             url,
         ]
     else:
-        # Request best audio as a raw stream. Converting to mp3 requires ffmpeg merging and may create temp files.
-        # To avoid extra work, we stream the best audio container (m4a/webm) and set mime accordingly.
+        # Audio fallback: get the best possible, which will require a merge.
         ytdlp_format_expr = "bestaudio/best"
         cmd = [
             "yt-dlp",
@@ -179,8 +277,8 @@ def download():
             "-",
             url,
         ]
-        # We may not actually be mp3; derive mime from info if possible
-        # try to get ext of best audio format
+
+        # Try to set a better mimetype/filename for the fallback
         best_audio_ext = None
         for f in reversed(info.get("formats", [])):
             if f.get("acodec") != "none" and f.get("vcodec") == "none":
@@ -195,12 +293,9 @@ def download():
         else:
             mimetype = "application/octet-stream"
 
-    logging.info(
-        "Falling back to yt-dlp subprocess: %s", " ".join(shlex.quote(c) for c in cmd)
-    )
+    logging.info("Running slow fallback: %s", " ".join(shlex.quote(c) for c in cmd))
 
     def generate_from_proc():
-        # Start the yt-dlp process and stream stdout.
         proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=1024 * 1024 * 4
         )
@@ -211,7 +306,6 @@ def download():
                     break
                 yield chunk
         finally:
-            # ensure process cleanup
             try:
                 proc.kill()
             except Exception:
