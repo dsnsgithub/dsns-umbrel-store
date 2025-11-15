@@ -1,8 +1,6 @@
 version: "3.7"
+
 services:
-  app_proxy:
-    environment:
-      APP_PORT: 8989
   server:
     image: python:3.12-alpine
     restart: on-failure
