@@ -18,5 +18,5 @@ services:
     environment:
       - UMBREL_APP_DATA_DIR=/umbrel-app-data
     ports:
-      - "8080:8080"
+      - "8989:8989"
     stop_grace_period: 1m
