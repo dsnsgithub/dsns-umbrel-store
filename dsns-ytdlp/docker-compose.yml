@@ -3,7 +3,7 @@ version: "3.7"
 services:
   app_proxy:
     environment:
-      APP_HOST: yt-dlp-stream_app_1
+      APP_HOST: dsns-ytdlp_app_1
       APP_PORT: 8081
 
   app:

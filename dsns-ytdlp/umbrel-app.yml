@@ -12,14 +12,15 @@ description: >-
   Built with Flask for simplicity; processes on the fly using yt-dlp's stdout streaming.
 releaseNotes: >-
   Initial release with streaming support.
-developer: Community
+developer: DSNS
 website: https://github.com/yt-dlp/yt-dlp
 dependencies: []
-repo: https://github.com/yt-dlp/yt-dlp
-support: https://github.com/yt-dlp/yt-dlp/issues
-port: 9999
+repo: https://github.com/dsnsgithub/dsns-umbrel-store
+support: https://github.com/dsnsgithub/dsns-umbrel-store/issues
+port: 8081
 gallery: []
 path: ""
 defaultUsername: ""
 defaultPassword: ""
-submitter: Community
+submitter: DSNS
+submission: https://github.com/dsnsgithub/dsns-umbrel-store
