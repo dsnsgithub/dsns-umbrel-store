@@ -1,20 +1,18 @@
+import os
 import re
 import subprocess
+import tempfile
 
-from flask import Flask, Response, request
+from flask import Flask, request, send_file
 
 app = Flask(__name__)
 
 
 def sanitize_filename(filename):
     """Remove/replace characters that are invalid in filenames"""
-    # Remove invalid characters
     filename = re.sub(r'[<>:"/\\|?*]', "", filename)
-    # Replace multiple spaces with single space
     filename = re.sub(r"\s+", " ", filename)
-    # Trim spaces and dots from start/end
     filename = filename.strip(". ")
-    # Limit length to 200 characters
     if len(filename) > 200:
         filename = filename[:200]
     return filename or "download"
@@ -37,12 +35,10 @@ def get_video_title(url):
 def download():
     url = request.form["url"]
     fmt = request.form["format"]
-
-    # Get the video title
     title = get_video_title(url)
 
     if fmt == "video":
-        # Best video + audio merged, stream to stdout with aria2c
+        ext = "mp4"
         cmd = [
             "yt-dlp",
             "--external-downloader",
@@ -51,15 +47,9 @@ def download():
             "aria2c:-x 16 -s 16 -k 1M",
             "-f",
             "bestvideo+bestaudio/best",
-            "--no-part",
-            "-o",
-            "-",
-            url,
         ]
-        mimetype = "video/mp4"
-        filename = f"{title}.mp4"
     else:
-        # Extract audio to MP3, stream to stdout with aria2c
+        ext = "mp3"
         cmd = [
             "yt-dlp",
             "--external-downloader",
@@ -69,31 +59,31 @@ def download():
             "-x",
             "--audio-format",
             "mp3",
-            "-o",
-            "-",
-            url,
         ]
-        mimetype = "audio/mpeg"
-        filename = f"{title}.mp3"
 
-    def generate():
-        # Run yt-dlp as subprocess, stream stdout in chunks
-        proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=1024 * 1024
-        )
-        while True:
-            chunk = proc.stdout.read(4096)
-            if not chunk:
-                break
-            yield chunk
-        proc.wait()  # Ensure process cleanup
+    # Create a temporary file for yt-dlp to write into
+    with tempfile.NamedTemporaryFile(delete=False, suffix=f".{ext}") as tmpfile:
+        temp_path = tmpfile.name
 
-    # Stream the response with attachment headers
-    return Response(
-        generate(),
-        mimetype=mimetype,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
+    cmd += ["-o", temp_path, url]
+
+    # Run yt-dlp + aria2c
+    try:
+        subprocess.run(cmd, check=True)
+    except subprocess.CalledProcessError as e:
+        os.remove(temp_path)
+        return f"Download failed: {e}", 500
+
+    # Stream the file to client
+    response = send_file(temp_path, as_attachment=True, download_name=f"{title}.{ext}")
+
+    # Clean up temp file after response is sent
+    @response.call_on_close
+    def cleanup():
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+    return response
 
 
 if __name__ == "__main__":
