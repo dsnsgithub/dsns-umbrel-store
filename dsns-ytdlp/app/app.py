@@ -10,12 +10,12 @@ def download():
 
     if fmt == 'video':
         # Best video + audio merged, stream to stdout
-        cmd = ['yt-dlp', '-f', 'bestvideo+bestaudio/best', '--no-part', '-o', '-', url]
+        cmd = ['yt-dlp', '-f', 'bestvideo+bestaudio/best', '--no-part', '--concurrent-fragments', '8', '-o', '-', url]
         mimetype = 'video/mp4'
         filename = 'video.mp4'
     else:
         # Extract audio to MP3, stream to stdout
-        cmd = ['yt-dlp', '-x', '--audio-format', 'mp3', '-o', '-', url]
+        cmd = ['yt-dlp', '-x', '--audio-format', 'mp3', '--concurrent-fragments', '8', '-o', '-', url]
         mimetype = 'audio/mpeg'
         filename = 'audio.mp3'
 
