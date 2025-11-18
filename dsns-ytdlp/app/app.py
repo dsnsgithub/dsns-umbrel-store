@@ -1,46 +1,48 @@
 import json
 import logging
-import re
 import subprocess
+import re
 from urllib.parse import quote
-
-import requests
 from flask import Flask, Response, abort, request
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 
+# Configure yt-dlp behavior
+YTDLP_OPTS = [
+    "yt-dlp",
+    "--no-warnings",
+    "--no-playlist",
+    "--dump-json",
+    # Use Android client to avoid throttling and age-gating
+    "--extractor-args", "youtube:player_client=android", 
+]
 
-def sanitize_filename(title, fallback="download"):
+def sanitize_filename(title):
     if not title:
-        return fallback
+        return "download"
+    # Allow unicode but strip dangerous chars
     fn = secure_filename(title)
     if not fn:
+        # Fallback for non-ascii titles
         fn = re.sub(r"[^\w\-_\. ]", "_", title)[:200]
     return fn
 
-
-def yt_dlp_json(url):
-    """
-    Get metadata.
-    Added --flat-playlist to ensure we don't get stuck processing huge playlists
-    if a playlist URL is accidentally provided.
-    """
-    cmd = [
-        "yt-dlp",
-        "--no-warnings",
-        "--no-playlist",
-        "--dump-json",  # Use dump-json instead of -j for clarity
-        url,
-    ]
-    # Run metadata fetch
+def get_metadata(url):
     try:
+        cmd = YTDLP_OPTS + [url]
         out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL)
         return json.loads(out)
     except subprocess.CalledProcessError:
         return None
 
+def get_headers_list(headers_dict):
+    """Convert JSON headers to FFmpeg -headers format"""
+    header_str = ""
+    for k, v in headers_dict.items():
+        header_str += f"{k}: {v}\r\n"
+    return header_str
 
 @app.route("/download", methods=["POST"])
 def download():
@@ -51,175 +53,145 @@ def download():
         return abort(400, "Missing url")
 
     logging.info(f"Fetching metadata for: {url}")
-    info = yt_dlp_json(url)
+    info = get_metadata(url)
 
     if not info:
         return abort(500, "Failed to fetch metadata")
 
-    title = info.get("title") or info.get("id") or "download"
-    safe_name = sanitize_filename(title)
+    title = info.get("title", "video")
+    clean_title = sanitize_filename(title)
 
-    # --- OPTIMIZATION: AUDIO SELECTION ---
-    target_url = None
-    target_headers = {}
+    # Filter formats from JSON
+    formats = info.get("formats", [])
+    
+    # ---------------------------------------------------------
+    # LOGIC: AUDIO DOWNLOAD (Fast AAC Stream)
+    # ---------------------------------------------------------
+    if fmt == "audio":
+        # Look for best m4a (AAC) audio
+        # yt-dlp format 140 is usually the best AAC audio
+        best_audio = None
+        for f in formats:
+            if f.get('ext') == 'm4a' and f.get('acodec') != 'none':
+                if not best_audio or f.get('tbr', 0) > best_audio.get('tbr', 0):
+                    best_audio = f
+        
+        if not best_audio:
+             # Fallback to any audio
+            best_audio = next((f for f in formats if f.get('acodec') != 'none'), None)
 
-    if fmt != "video":
-        # AUDIO OPTIMIZATION:
-        # 1. Do NOT convert to MP3 (slow). Use m4a (AAC) which is standard and fast.
-        # 2. Find the best "direct" url (http/https) to stream via requests.
+        if not best_audio:
+            return abort(404, "No audio found")
 
-        # Sort formats: prefer m4a (aac) > webm > others, and higher bitrate.
-        formats = info.get("formats", [])
+        target_url = best_audio['url']
+        headers = get_headers_list(best_audio.get('http_headers', {}))
+        
+        # We stream as .aac (ADTS) because it is streamable. 
+        # .m4a (MP4 container) requires the MOOV atom at the end, making it bad for streaming.
+        filename = f"{clean_title}.aac"
+        mimetype = "audio/aac"
 
-        # Filter for audio only
-        audio_formats = [
-            f
-            for f in formats
-            if f.get("vcodec") == "none" and f.get("acodec") != "none"
+        # FFmpeg command to copy stream without re-encoding (Very Fast)
+        cmd = [
+            "ffmpeg",
+            "-reconnect", "1", 
+            "-reconnect_streamed", "1", 
+            "-reconnect_delay_max", "5",
+            "-headers", headers,
+            "-i", target_url,
+            "-vn",              # No video
+            "-c:a", "copy",     # Direct copy (no CPU usage)
+            "-f", "adts",       # Streamable AAC format
+            "-"                 # Output to stdout
         ]
 
-        selected_fmt = None
-
-        # Priority 1: Look for m4a (AAC) over HTTP (Format 140 is standard YouTube AAC)
-        # This plays everywhere and downloads instantly.
-        for f in audio_formats:
-            if f.get("ext") == "m4a" and f.get("protocol", "").startswith("http"):
-                # Choose the one with highest filesize/bitrate
-                if not selected_fmt or (f.get("tbr", 0) > selected_fmt.get("tbr", 0)):
-                    selected_fmt = f
-
-        # Priority 2: If no m4a, get best webm/opus
-        if not selected_fmt:
-            for f in audio_formats:
-                if f.get("protocol", "").startswith("http"):
-                    if not selected_fmt or (
-                        f.get("tbr", 0) > selected_fmt.get("tbr", 0)
-                    ):
-                        selected_fmt = f
-
-        if selected_fmt:
-            target_url = selected_fmt.get("url")
-            target_headers = selected_fmt.get("http_headers", {})
-
-            # Set filename extension based on actual format
-            ext = selected_fmt.get("ext", "m4a")
-            filename = f"{safe_name}.{ext}"
-
-            # Set Mime type
-            if ext == "m4a":
-                mimetype = "audio/mp4"  # Standard for m4a
-            elif ext == "webm":
-                mimetype = "audio/webm"
-            else:
-                mimetype = "application/octet-stream"
-        else:
-            # Fallback if no audio found (rare)
-            return abort(404, "No suitable audio stream found")
-
+    # ---------------------------------------------------------
+    # LOGIC: VIDEO DOWNLOAD (High Quality Merge)
+    # ---------------------------------------------------------
     else:
-        # VIDEO LOGIC (Simple: Find single file best quality)
-        # Try to find mp4 with audio and video
-        formats = info.get("formats", [])
-        selected_fmt = None
+        # 1. Find Best Video (prefer 1080p/4k)
+        # We look for video-only streams usually (vcodec!=none, acodec=none)
+        video_streams = [f for f in formats if f.get('vcodec') != 'none']
+        # Sort by bitrate (tbr) descending
+        video_streams.sort(key=lambda x: x.get('tbr', 0) or 0, reverse=True)
+        best_video = video_streams[0] if video_streams else None
 
-        for f in formats:
-            # Must have audio and video and be http
-            if (
-                f.get("vcodec") != "none"
-                and f.get("acodec") != "none"
-                and f.get("protocol", "").startswith("http")
-            ):
-                if not selected_fmt or (f.get("tbr", 0) > selected_fmt.get("tbr", 0)):
-                    selected_fmt = f
+        # 2. Find Best Audio
+        audio_streams = [f for f in formats if f.get('acodec') != 'none']
+        audio_streams.sort(key=lambda x: x.get('tbr', 0) or 0, reverse=True)
+        best_audio = audio_streams[0] if audio_streams else None
 
-        if selected_fmt:
-            target_url = selected_fmt.get("url")
-            target_headers = selected_fmt.get("http_headers", {})
-            filename = f"{safe_name}.mp4"
-            mimetype = "video/mp4"
+        if not best_video:
+             return abort(404, "No video found")
+
+        # Prepare FFmpeg Inputs
+        cmd = [
+            "ffmpeg",
+            "-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "5",
+            "-headers", get_headers_list(best_video.get('http_headers', {})),
+            "-i", best_video['url']
+        ]
+
+        # If we have separate audio, add it as second input
+        if best_audio and best_audio['id'] != best_video['id']:
+            cmd.extend([
+                "-headers", get_headers_list(best_audio.get('http_headers', {})),
+                "-i", best_audio['url'],
+                "-map", "0:v", # Use video from first input
+                "-map", "1:a", # Use audio from second input
+            ])
         else:
-            # If we can't find a single combined file, we fallback to the subprocess method below
-            pass
+            # Fallback: Single file found (rarely happens for high quality)
+            cmd.extend(["-map", "0"])
 
-    # --- STREAMING STRATEGY ---
+        # 3. OUTPUT CONFIGURATION
+        # We MUST use Matroska (MKV) for streaming. 
+        # MP4 cannot be streamed reliably while merging (requires seeking to write header).
+        filename = f"{clean_title}.mkv"
+        mimetype = "video/x-matroska"
 
-    # STRATEGY A: Fast Direct Proxy (Preferred)
-    if target_url:
-        logging.info(f"Fast Direct Stream: {filename}")
+        cmd.extend([
+            "-c", "copy",       # Copy streams directly (Zero CPU re-encoding)
+            "-f", "matroska",   # Streamable container
+            "-"                 # Pipe to stdout
+        ])
 
-        def generate_direct():
-            try:
-                # stream=True is crucial.
-                # Timeout prevents hanging if YT drops connection.
-                with requests.get(
-                    target_url, headers=target_headers, stream=True, timeout=15
-                ) as r:
-                    r.raise_for_status()
-                    # Increased chunk size to 64KB for better throughput
-                    for chunk in r.iter_content(chunk_size=64 * 1024):
-                        if chunk:
-                            yield chunk
-            except Exception as e:
-                logging.error(f"Stream error: {e}")
-
-        disposition = f"attachment; filename*=UTF-8''{quote(filename)}"
-        return Response(
-            generate_direct(),
-            mimetype=mimetype,
-            headers={"Content-Disposition": disposition},
+    # ---------------------------------------------------------
+    # EXECUTE STREAM
+    # ---------------------------------------------------------
+    def stream_ffmpeg():
+        # Start FFmpeg process
+        proc = subprocess.Popen(
+            cmd, 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.DEVNULL, # Hide FFmpeg logs
+            bufsize=10**6 # Large buffer for smooth network
         )
-
-    # STRATEGY B: Subprocess Fallback (Slow, only used if Direct fail/Complex video)
-    # This handles cases like 1080p+ (which are separate audio/video streams)
-    # or HLS/M3U8 streams.
-    logging.info("Fallback to Subprocess Stream")
-
-    if fmt == "video":
-        # bestvideo+bestaudio usually requires merging = slow.
-        # 'best' is usually 720p max but single file = fast.
-        ytdlp_fmt = "best"
-        filename = f"{safe_name}.mp4"
-        mimetype = "video/mp4"
-    else:
-        ytdlp_fmt = "bestaudio/best"
-        filename = f"{safe_name}.m4a"  # We force container to something standard
-        mimetype = "audio/mp4"
-
-    cmd = [
-        "yt-dlp",
-        "-f",
-        ytdlp_fmt,
-        "-o",
-        "-",  # stdout
-        "--quiet",
-        "--no-playlist",
-        # Buffer improvements
-        "--buffer-size",
-        "16K",
-        "--no-part",
-        url,
-    ]
-
-    def generate_subprocess():
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        
         try:
-            # Read in larger chunks
+            # Yield data as it comes in
             while True:
                 chunk = proc.stdout.read(64 * 1024)
                 if not chunk:
                     break
                 yield chunk
+        except GeneratorExit:
+            proc.terminate()
+            proc.wait()
         finally:
-            proc.kill()
+            if proc.poll() is None:
+                proc.kill()
 
+    logging.info(f"Streaming ({fmt}): {filename}")
+    
+    # Modern browsers handle Content-Disposition better with UTF-8
     disposition = f"attachment; filename*=UTF-8''{quote(filename)}"
+    
     return Response(
-        generate_subprocess(),
+        stream_ffmpeg(),
         mimetype=mimetype,
-        headers={"Content-Disposition": disposition},
+        headers={"Content-Disposition": disposition}
     )
 
-
 if __name__ == "__main__":
-    # Threaded is required for streaming
     app.run(host="0.0.0.0", port=8989, threaded=True)
